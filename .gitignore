@@ -1,0 +1,6 @@
+/data
+/dectalk
+/target
+
+/.env
+/docker-compose.yml
