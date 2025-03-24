@@ -350,6 +350,27 @@ async fn message_event_handler(
     }
     let mut text = msg.content[prefix.len()..].to_string();
 
+    // Check if the channel is a voice channel
+    let channel = match msg.channel_id.to_channel(ctx).await {
+        Ok(channel) => channel,
+        Err(_) => return Ok(()),
+    };
+
+    let guild_channel = match channel.guild() {
+        Some(guild_channel) => guild_channel,
+        None => return Ok(()),
+    };
+
+    if guild_channel.kind != serenity::ChannelType::Voice {
+        return Ok(());
+    }
+
+    // Check if anyone is in the voice channel
+    let members = guild_channel.members(ctx)?;
+    if members.len() == 0 {
+        return Ok(());
+    }
+
     // Check if the user is muted
     let mute_manager = data.mute_manager.lock().await;
     let muted = mute_manager.get(guild_id.get(), msg.author.id.get());
@@ -374,27 +395,6 @@ async fn message_event_handler(
     {
         text = text[..framework.user_data.tts_len].to_string();
         msg.react(ctx, '⚠').await?;
-    }
-
-    // Check if the channel is a voice channel
-    let channel = match msg.channel_id.to_channel(ctx).await {
-        Ok(channel) => channel,
-        Err(_) => return Ok(()),
-    };
-
-    let guild_channel = match channel.guild() {
-        Some(guild_channel) => guild_channel,
-        None => return Ok(()),
-    };
-
-    if guild_channel.kind != serenity::ChannelType::Voice {
-        return Ok(());
-    }
-
-    // Check if anyone is in the voice channel
-    let members = guild_channel.members(ctx)?;
-    if members.len() == 0 {
-        return Ok(());
     }
 
     // Check if we're connected to the voice channel
