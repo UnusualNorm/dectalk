@@ -18,5 +18,5 @@ serenity = { version = "0.12.4", features = ["temp_cache"] }
 songbird = "0.5.0"
 symphonia = { version = "0.5.4", features = ["wav"] }
 thiserror = "2.0.12"
-tokio = { version = "1.44.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.44.2", features = ["rt-multi-thread"] }
 uuid = "1.16.0"
