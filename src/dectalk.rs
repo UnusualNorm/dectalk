@@ -3,7 +3,6 @@ use std::io;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{fs, process::Command};
-use uuid::Uuid;
 
 // https://github.com/dectalk/dectalk/blob/develop/src/Txt16bit/apndx_d.txt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,15 +361,20 @@ impl Default for DECtalkVoice {
 
 #[derive(Error, Debug)]
 pub enum DECtalkError {
+    #[error("Invalid ASCII")]
+    InvalidASCII,
     #[error("IO error: {0}")]
     IOError(#[from] io::Error),
     #[error("Say error: {0}")]
     SayError(String),
 }
 
-pub async fn tts(text: &str, voice: &DECtalkVoice) -> Result<String, DECtalkError> {
-    let filename = format!("dectalk/{}.wav", Uuid::new_v4());
+pub async fn tts(text: &str, voice: &DECtalkVoice, id: u64) -> Result<Vec<u8>, DECtalkError> {
+    if !text.is_ascii() {
+        return Err(DECtalkError::InvalidASCII);
+    }
 
+    let filename = format!("dectalk/{}.wav", id);
     let mut cmd = Command::new("dectalk/say");
     cmd.arg("-fo").arg(&filename);
     cmd.arg("-pre").arg(format!(
@@ -417,9 +421,11 @@ pub async fn tts(text: &str, voice: &DECtalkVoice) -> Result<String, DECtalkErro
         }
 
         return Err(DECtalkError::SayError(
-            String::from_utf8(output.stderr).expect("stderr is not valid UTF-8"),
+            String::from_utf8_lossy(&output.stderr).to_string(),
         ));
     }
 
-    Ok(filename)
+    let bytes = fs::read(&filename).await?;
+    fs::remove_file(&filename).await?;
+    Ok(bytes)
 }

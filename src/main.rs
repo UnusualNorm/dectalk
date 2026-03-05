@@ -7,7 +7,7 @@ use mute_manager::MuteManager;
 use poise::serenity_prelude as serenity;
 use prefix_manager::PrefixManager;
 use songbird::{SerenityInit, input::Input};
-use tokio::{fs, sync::Mutex};
+use tokio::sync::Mutex;
 use voice_manager::VoiceManager;
 
 mod dectalk;
@@ -171,9 +171,7 @@ async fn test(ctx: Context<'_>, text: String) -> Result<(), Error> {
     let voice_manager = ctx.data().voice_manager.lock().await;
     let voice = voice_manager.get(author.id.get());
 
-    let tts_path = tts(&text, voice).await?;
-    let tts_bytes = fs::read(&tts_path).await?;
-    fs::remove_file(&tts_path).await?;
+    let tts_bytes = tts(&text, voice, ctx.id()).await?;
 
     ctx.send(
         poise::CreateReply::default()
@@ -329,59 +327,51 @@ async fn message_event_handler(
     framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
 ) -> Result<(), Error> {
-    // Check if the message is from a bot
     if msg.author.bot {
         return Ok(());
     }
 
-    // Check if the message is in a guild
-    let guild_id = match msg.guild_id {
-        Some(guild_id) => guild_id,
-        None => return Ok(()),
+    let Some(guild_id) = msg.guild_id else {
+        return Ok(());
     };
 
-    // Check if the message starts with the prefix
-    let prefix_manager = data.prefix_manager.lock().await;
-    let prefix = prefix_manager.get(guild_id.get()).to_string();
-    drop(prefix_manager);
+    let prefix = {
+        let prefix_manager = data.prefix_manager.lock().await;
+        prefix_manager.get(guild_id.get()).to_string()
+    };
 
     if !msg.content.starts_with(&prefix) {
         return Ok(());
     }
     let mut text = msg.content[prefix.len()..].to_string();
 
-    // Check if the channel is a voice channel
-    let channel = match msg.channel_id.to_channel(ctx).await {
-        Ok(channel) => channel,
-        Err(_) => return Ok(()),
+    let Ok(channel) = msg.channel_id.to_channel(ctx).await else {
+        return Ok(());
     };
 
-    let guild_channel = match channel.guild() {
-        Some(guild_channel) => guild_channel,
-        None => return Ok(()),
+    let Some(guild_channel) = channel.guild() else {
+        return Ok(());
     };
 
     if guild_channel.kind != serenity::ChannelType::Voice {
         return Ok(());
     }
 
-    // Check if anyone is in the voice channel
     let members = guild_channel.members(ctx)?;
     if members.len() == 0 {
         return Ok(());
     }
 
-    // Check if the user is muted
-    let mute_manager = data.mute_manager.lock().await;
-    let muted = mute_manager.get(guild_id.get(), msg.author.id.get());
-    drop(mute_manager);
+    let muted = {
+        let mute_manager = data.mute_manager.lock().await;
+        mute_manager.get(guild_id.get(), msg.author.id.get())
+    };
 
     if muted {
         msg.react(ctx, '❌').await?;
         return Ok(());
     }
 
-    // Process the message
     text = utils::replace_links(&text);
     text = utils::replace_discord_emojis(&text);
     text = text.trim().to_string();
@@ -397,41 +387,29 @@ async fn message_event_handler(
         msg.react(ctx, '⚠').await?;
     }
 
-    // Check if we're connected to the voice channel
     let manager = songbird::get(ctx)
         .await
-        .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
+        .expect("Songbird Voice client placed in at initialisation.");
 
-    let handler_lock = match manager.get(guild_id) {
-        Some(handler) => handler,
-        None => manager.join(guild_id, msg.channel_id).await?,
+    let handler_lock = manager.get_or_insert(guild_id);
+    let mut handler = handler_lock.lock().await;
+    handler.deafen(true).await?;
+    handler.join(msg.channel_id).await?.await?;
+
+    let voice = {
+        let voice_manager = data.voice_manager.lock().await;
+        voice_manager.get(msg.author.id.get()).clone()
     };
 
-    let mut handler = handler_lock.lock().await;
+    let mut tts_bytes = match tts(&text, &voice, msg.id.get()).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            msg.react(ctx, '❌').await?;
+            return Err(Box::new(err));
+        }
+    };
 
-    if handler.current_channel().map(|c| c.0.get()).unwrap_or(0) != msg.channel_id.get() {
-        handler.join(msg.channel_id).await?;
-    }
-
-    // Check if we're deafened
-    if !handler.is_deaf() {
-        handler.deafen(true).await?;
-    }
-
-    // Generate the TTS
-    let voice_manager = data.voice_manager.lock().await;
-    let voice = voice_manager.get(msg.author.id.get()).clone();
-    drop(voice_manager);
-
-    let tts_path = tts(&text, &voice).await?;
-    let mut tts_bytes = fs::read(&tts_path).await?;
-    fs::remove_file(&tts_path).await?;
-
-    // Normalize the TTS
     tts_bytes = utils::normalize_wav(&tts_bytes, framework.user_data.tts_peak)?;
-
-    // Play the TTS
     handler.play_input(Input::from(tts_bytes));
     Ok(())
 }
@@ -460,8 +438,7 @@ async fn voice_state_update_event_handler(
 
     let manager = songbird::get(ctx)
         .await
-        .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
+        .expect("Songbird Voice client placed in at initialisation.");
 
     let handler_lock = match manager.get(guild_id) {
         Some(handler) => handler,
