@@ -9,7 +9,7 @@ WORKDIR /dectalk/src
 RUN autoreconf -i && ./configure && make
 
 
-FROM rust:1.85 AS builder
+FROM rust:1.93.1 AS builder
 RUN apt-get update && apt-get install -y libopus-dev libpulse-dev
 
 WORKDIR /usr/src/dectalk
