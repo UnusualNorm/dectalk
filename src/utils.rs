@@ -47,6 +47,6 @@ pub fn replace_links(text: &str) -> String {
     URL_REGEX.replace_all(text, "").to_string()
 }
 
-pub fn replace_discord_emojis(text: &str) -> String {
+pub fn replace_emojis(text: &str) -> String {
     EMOJI_REGEX.replace_all(text, "$1").to_string()
 }

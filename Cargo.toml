@@ -5,18 +5,16 @@ edition = "2024"
 
 [dependencies]
 dotenv = "0.15.0"
-env_logger = "0.11.10"
-futures = "0.3.32"
+env_logger = "0.11.11"
+futures = "0.3.34"
 hound = "3.5.1"
-log = "0.4.29"
-poise = "0.6.1"
-regex = "1.12.3"
-# songbird = "0.5.0"
-songbird = { git = "https://github.com/serenity-rs/songbird.git", branch = "next" }
-serde = "1.0.228"
-serde_json = "1.0.149"
+log = "0.4.34"
+poise = "0.6.2"
+regex = "1.13.1"
+songbird = "0.6.0"
+serde = "1.0.229"
+serde_json = "1.0.151"
 serenity = { version = "0.12.5", features = ["temp_cache"] }
-
 symphonia = { version = "0.5.5", features = ["wav"] }
-thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }

@@ -1,236 +1,114 @@
-use std::{collections::HashSet, env, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+};
 
-use dectalk::tts;
+use commands::commands;
+use dectalk::{PAUL_VOICE, Voice};
 use dotenv::dotenv;
-use futures::{Stream, StreamExt, future, stream};
-use mute_manager::MuteManager;
-use poise::serenity_prelude as serenity;
-use prefix_manager::PrefixManager;
+use poise::serenity_prelude::*;
+use serde_data::{SerdeData, SerdeDataError};
 use songbird::{SerenityInit, input::Input};
-use tokio::sync::Mutex;
-use voice_manager::VoiceManager;
 
+mod commands;
 mod dectalk;
-mod mute_manager;
-mod prefix_manager;
+mod serde_data;
 mod utils;
-mod voice_manager;
+
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 struct Data {
-    voice_manager: Arc<Mutex<VoiceManager>>,
-    mute_manager: Arc<Mutex<MuteManager>>,
-    prefix_manager: Arc<Mutex<PrefixManager>>,
+    voice_data: SerdeData<HashMap<u64, Voice>>,
+    mute_data: SerdeData<HashMap<u64, HashSet<u64>>>,
+    prefix_data: SerdeData<HashMap<u64, String>>,
+    invert_data: SerdeData<HashSet<u64>>,
+    tts_prefix: String,
     tts_peak: f32,
     tts_len: usize,
 }
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, Data, Error>;
 
-#[poise::command(slash_command, ephemeral)]
-async fn voice(
-    ctx: Context<'_>,
-    #[description = "0-1 -- Sex 1 (male) or 0 (female)"] sx: Option<u8>,
-    #[description = "65-145 % Head size"] hs: Option<u8>,
-    #[description = "2000-4650 Hz Fourth formant frequency"] f4: Option<u16>,
-    #[description = "2500-4950 Hz Fifth formant frequency"] f5: Option<u16>,
-    #[description = "100-2048 Hz Fourth formant bandwidth"] b4: Option<u16>,
-    #[description = "100-2048 Hz Fifth formant bandwidth"] b5: Option<u16>,
-    #[description = "0-72 dB Breathiness"] br: Option<u8>,
-    #[description = "0-100 % Lax breathiness"] lx: Option<u8>,
-    #[description = "0-100 % Smoothness (high frequency attenuation)"] sm: Option<u8>,
-    #[description = "0-100 % Richness"] ri: Option<u8>,
-    #[description = "0-100 -- Number of fixed samplings of glottal pulse open phase"] nf: Option<
-        u8,
-    >,
-    #[description = "0-100 % Laryngealization"] la: Option<u8>,
-    #[description = "0-40 Hz Baseline fall"] bf: Option<u8>,
-    #[description = "2-100 Hz Hat rise"] hr: Option<u8>,
-    #[description = "1-100 Hz Stress rise"] sr: Option<u8>,
-    #[description = "0-100 % Assertiveness"] as_: Option<u8>,
-    #[description = "0-100 % Quickness"] qu: Option<u8>,
-    #[description = "50-350 Hz Average pitch"] ap: Option<u16>,
-    #[description = "0-250 % Pitch range"] pr: Option<u8>,
-    #[description = "0-86 dB Gain of voicing source"] gv: Option<u8>,
-    #[description = "0-86 dB Gain of aspiration source"] gh: Option<u8>,
-    #[description = "0-86 dB Gain of frication source"] gf: Option<u8>,
-    #[description = "0-86 dB Gain of nasalization"] gn: Option<u8>,
-    // #[description = "0-86 dB Gain of first formant resonator"] g1: Option<u8>,
-    // #[description = "0-86 dB Gain of second formant resonator"] g2: Option<u8>,
-    // #[description = "0-86 dB Gain of third formant resonator"] g3: Option<u8>,
-    // #[description = "0-86 dB Gain of fourth formant resonator"] g4: Option<u8>,
-    // #[description = "0-86 dB Gain of fifth formant resonator (replaces lo)"] g5: Option<u8>,
-) -> Result<(), Error> {
-    let author = ctx.author();
-
-    let mut voice_manager = ctx.data().voice_manager.lock().await;
-    let voice = voice_manager.get(author.id.get());
-
-    let voice = dectalk::DECtalkVoice {
-        sx: sx.unwrap_or(voice.sx),
-        hs: hs.unwrap_or(voice.hs),
-        f4: f4.unwrap_or(voice.f4),
-        f5: f5.unwrap_or(voice.f5),
-        b4: b4.unwrap_or(voice.b4),
-        b5: b5.unwrap_or(voice.b5),
-        br: br.unwrap_or(voice.br),
-        lx: lx.unwrap_or(voice.lx),
-        sm: sm.unwrap_or(voice.sm),
-        ri: ri.unwrap_or(voice.ri),
-        nf: nf.unwrap_or(voice.nf),
-        la: la.unwrap_or(voice.la),
-        bf: bf.unwrap_or(voice.bf),
-        hr: hr.unwrap_or(voice.hr),
-        sr: sr.unwrap_or(voice.sr),
-        as_: as_.unwrap_or(voice.as_),
-        qu: qu.unwrap_or(voice.qu),
-        ap: ap.unwrap_or(voice.ap),
-        pr: pr.unwrap_or(voice.pr),
-        gv: gv.unwrap_or(voice.gv),
-        gh: gh.unwrap_or(voice.gh),
-        gf: gf.unwrap_or(voice.gf),
-        gn: gn.unwrap_or(voice.gn),
-        // g1: g1.unwrap_or(voice.g1),
-        // g2: g2.unwrap_or(voice.g2),
-        // g3: g3.unwrap_or(voice.g3),
-        // g4: g4.unwrap_or(voice.g4),
-        // g5: g5.unwrap_or(voice.g5),
-        g1: voice.g1,
-        g2: voice.g2,
-        g3: voice.g3,
-        g4: voice.g4,
-        g5: voice.g5,
-    };
-
-    if !voice.validate() {
-        ctx.say("Invalid voice!").await?;
-        return Ok(());
+impl Data {
+    async fn get_voice(&self, user_id: UserId) -> Voice {
+        self.voice_data
+            .get()
+            .await
+            .get(&user_id.get())
+            .cloned()
+            .unwrap_or(dectalk::random(user_id.get()))
     }
 
-    voice_manager.set(author.id.get(), &voice).await?;
-    ctx.say(format!("```rust\n{:?}\n```", voice)).await?;
-    Ok(())
-}
+    async fn set_voice(&self, user_id: UserId, voice: Voice) -> Result<(), SerdeDataError> {
+        self.voice_data.get_mut().await.insert(user_id.get(), voice);
+        self.voice_data.save().await?;
+        Ok(())
+    }
 
-async fn autocomplete_voice_preset<'a>(
-    _ctx: Context<'_>,
-    partial: &'a str,
-) -> impl Stream<Item = String> + 'a {
-    stream::iter(&[
-        "Paul", "Harry", "Frank", "Dennis", "Betty", "Ursula", "Wendy", "Rita", "Kit",
-    ])
-    .filter(move |name| future::ready(name.starts_with(partial)))
-    .map(|name| name.to_string())
-}
+    async fn remove_voice(&self, user_id: UserId) -> Result<(), SerdeDataError> {
+        self.voice_data.get_mut().await.remove(&user_id.get());
+        self.voice_data.save().await?;
+        Ok(())
+    }
 
-#[poise::command(slash_command, ephemeral)]
-async fn preset(
-    ctx: Context<'_>,
-    #[autocomplete = "autocomplete_voice_preset"] voice: String,
-) -> Result<(), Error> {
-    let author = ctx.author();
+    async fn get_muted(&self, guild_id: GuildId, user_id: UserId) -> bool {
+        self.mute_data
+            .get()
+            .await
+            .get(&guild_id.get())
+            .map(|set| set.contains(&user_id.get()))
+            .unwrap_or(false)
+    }
 
-    let voice = match voice.as_str() {
-        "Paul" => dectalk::PAUL_VOICE,
-        "Harry" => dectalk::HARRY_VOICE,
-        "Frank" => dectalk::FRANK_VOICE,
-        "Dennis" => dectalk::DENNIS_VOICE,
-        "Betty" => dectalk::BETTY_VOICE,
-        "Ursula" => dectalk::URSULA_VOICE,
-        "Wendy" => dectalk::WENDY_VOICE,
-        "Rita" => dectalk::RITA_VOICE,
-        "Kit" => dectalk::KIT_VOICE,
-        _ => {
-            ctx.say("Invalid voice preset!").await?;
-            return Ok(());
+    async fn set_muted(
+        &self,
+        guild_id: GuildId,
+        user_id: UserId,
+        muted: bool,
+    ) -> Result<(), SerdeDataError> {
+        let mut mute_data = self.mute_data.get_mut().await;
+        let set = mute_data.entry(guild_id.get()).or_insert_with(HashSet::new);
+        if muted {
+            set.insert(user_id.get());
+        } else {
+            set.remove(&user_id.get());
         }
-    };
+        drop(mute_data);
+        self.mute_data.save().await?;
+        Ok(())
+    }
 
-    let mut voice_manager = ctx.data().voice_manager.lock().await;
-    voice_manager.set(author.id.get(), &voice).await?;
+    async fn get_prefix(&self, guild_id: GuildId) -> String {
+        self.prefix_data
+            .get()
+            .await
+            .get(&guild_id.get())
+            .cloned()
+            .unwrap_or_else(|| self.tts_prefix.clone())
+    }
 
-    ctx.say(format!("```rust\n{:?}\n```", voice)).await?;
-    Ok(())
-}
+    async fn set_prefix(&self, guild_id: GuildId, prefix: String) -> Result<(), SerdeDataError> {
+        self.prefix_data
+            .get_mut()
+            .await
+            .insert(guild_id.get(), prefix);
+        self.prefix_data.save().await?;
+        Ok(())
+    }
 
-#[poise::command(slash_command, ephemeral)]
-async fn reset(ctx: Context<'_>) -> Result<(), Error> {
-    let author = ctx.author();
+    async fn get_inverted(&self, guild_id: GuildId) -> bool {
+        self.invert_data.get().await.contains(&guild_id.get())
+    }
 
-    let mut voice_manager = ctx.data().voice_manager.lock().await;
-    voice_manager.remove(author.id.get()).await?;
-
-    let voice = voice_manager.get(author.id.get());
-    ctx.say(format!("```rust\n{:?}\n```", voice)).await?;
-    Ok(())
-}
-
-#[poise::command(slash_command)]
-async fn test(ctx: Context<'_>, text: String) -> Result<(), Error> {
-    let author = ctx.author();
-
-    let voice_manager = ctx.data().voice_manager.lock().await;
-    let voice = voice_manager.get(author.id.get());
-
-    let tts_bytes = tts(&text, voice, ctx.id()).await?;
-
-    ctx.send(
-        poise::CreateReply::default()
-            .attachment(serenity::CreateAttachment::bytes(tts_bytes, "tts.wav")),
-    )
-    .await?;
-    Ok(())
-}
-
-#[poise::command(
-    slash_command,
-    ephemeral,
-    guild_only,
-    required_permissions = "MUTE_MEMBERS"
-)]
-async fn muted(ctx: Context<'_>, user: serenity::Member, muted: Option<bool>) -> Result<(), Error> {
-    let guild_id = match ctx.guild_id() {
-        Some(guild_id) => guild_id,
-        None => return Ok(()),
-    };
-    let user_id = user.user.id;
-
-    let mut mute_manager = ctx.data().mute_manager.lock().await;
-
-    let muted = if let Some(muted) = muted {
-        mute_manager
-            .set(guild_id.get(), user_id.get(), muted)
-            .await?;
-        muted
-    } else {
-        mute_manager.get(guild_id.get(), user_id.get())
-    };
-
-    ctx.say(format!("Muted: `{}`", muted)).await?;
-    Ok(())
-}
-
-#[poise::command(
-    slash_command,
-    ephemeral,
-    guild_only,
-    required_permissions = "MANAGE_GUILD"
-)]
-async fn prefix(ctx: Context<'_>, prefix: Option<String>) -> Result<(), Error> {
-    let guild_id = match ctx.guild_id() {
-        Some(guild_id) => guild_id,
-        None => return Ok(()),
-    };
-
-    let mut prefix_manager = ctx.data().prefix_manager.lock().await;
-    let prefix = if let Some(prefix) = prefix {
-        prefix_manager.set(guild_id.get(), &prefix).await?;
-        prefix
-    } else {
-        prefix_manager.get(guild_id.get()).to_string()
-    };
-
-    ctx.say(format!("Prefix: `{}`", prefix)).await?;
-    Ok(())
+    async fn set_inverted(&self, guild_id: GuildId, inverted: bool) -> Result<(), SerdeDataError> {
+        let mut invert_data = self.invert_data.get_mut().await;
+        if inverted {
+            invert_data.insert(guild_id.get());
+        } else {
+            invert_data.remove(&guild_id.get());
+        }
+        drop(invert_data);
+        self.invert_data.save().await?;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -239,20 +117,18 @@ async fn main() {
     dotenv().ok();
 
     let token = env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");
-    let intents =
-        serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT;
-
+    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
     let mut owners = HashSet::new();
     for owner in env::var("DISCORD_OWNERS")
         .expect("missing OWNERS")
         .split(',')
     {
-        owners.insert(serenity::UserId::new(owner.parse().expect("invalid owner")));
+        owners.insert(UserId::new(owner.parse().expect("invalid owner")));
     }
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![preset(), voice(), reset(), test(), muted(), prefix()],
+            commands: commands(),
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx, event, framework, data))
             },
@@ -262,28 +138,12 @@ async fn main() {
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-
-                let mut voice_manager = VoiceManager::new();
-                if voice_manager.can_load().await {
-                    voice_manager.load().await?;
-                }
-
-                let mut mute_manager = MuteManager::new();
-                if mute_manager.can_load().await {
-                    mute_manager.load().await?;
-                }
-
-                let mut prefix_manager = PrefixManager::new(
-                    env::var("TTS_PREFIX").expect("missing TTS_PREFIX").as_str(),
-                );
-                if prefix_manager.can_load().await {
-                    prefix_manager.load().await?;
-                }
-
                 Ok(Data {
-                    voice_manager: Arc::new(Mutex::new(voice_manager)),
-                    mute_manager: Arc::new(Mutex::new(mute_manager)),
-                    prefix_manager: Arc::new(Mutex::new(prefix_manager)),
+                    voice_data: SerdeData::new("voices").await.expect("invalid voices"),
+                    mute_data: SerdeData::new("mutes").await.expect("invalid mutes"),
+                    prefix_data: SerdeData::new("prefixes").await.expect("invalid prefixes"),
+                    invert_data: SerdeData::new("inverts").await.expect("invalid inverts"),
+                    tts_prefix: env::var("TTS_PREFIX").expect("missing TTS_PREFIX"),
                     tts_len: env::var("TTS_LEN")
                         .expect("missing TTS_LEN")
                         .parse::<usize>()
@@ -297,7 +157,7 @@ async fn main() {
         })
         .build();
 
-    let client = serenity::ClientBuilder::new(token, intents)
+    let client = ClientBuilder::new(token, intents)
         .framework(framework)
         .register_songbird()
         .await;
@@ -305,16 +165,16 @@ async fn main() {
 }
 
 async fn event_handler(
-    ctx: &serenity::Context,
-    event: &serenity::FullEvent,
+    ctx: &Context,
+    event: &FullEvent,
     framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
 ) -> Result<(), Error> {
     match event {
-        serenity::FullEvent::Message { new_message, .. } => {
+        FullEvent::Message { new_message, .. } => {
             message_event_handler(ctx, new_message, framework, data).await
         }
-        serenity::FullEvent::VoiceStateUpdate { old, new } => {
+        FullEvent::VoiceStateUpdate { old, new } => {
             voice_state_update_event_handler(ctx, old, new, framework, data).await
         }
         _ => Ok(()),
@@ -322,8 +182,8 @@ async fn event_handler(
 }
 
 async fn message_event_handler(
-    ctx: &serenity::Context,
-    msg: &serenity::Message,
+    ctx: &Context,
+    msg: &Message,
     framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
 ) -> Result<(), Error> {
@@ -335,15 +195,17 @@ async fn message_event_handler(
         return Ok(());
     };
 
-    let prefix = {
-        let prefix_manager = data.prefix_manager.lock().await;
-        prefix_manager.get(guild_id.get()).to_string()
-    };
-
-    if !msg.content.starts_with(&prefix) {
-        return Ok(());
+    let mut text = msg.content.clone();
+    let prefix = data.get_prefix(guild_id).await;
+    match (
+        data.get_inverted(guild_id).await,
+        msg.content.starts_with(&prefix),
+    ) {
+        (true, true) => return Ok(()),
+        (true, false) => (),
+        (false, true) => text = text[prefix.len()..].to_string(),
+        (false, false) => return Ok(()),
     }
-    let mut text = msg.content[prefix.len()..].to_string();
 
     let Ok(channel) = msg.channel_id.to_channel(ctx).await else {
         return Ok(());
@@ -353,7 +215,7 @@ async fn message_event_handler(
         return Ok(());
     };
 
-    if guild_channel.kind != serenity::ChannelType::Voice {
+    if guild_channel.kind != ChannelType::Voice {
         return Ok(());
     }
 
@@ -362,20 +224,16 @@ async fn message_event_handler(
         return Ok(());
     }
 
-    let muted = {
-        let mute_manager = data.mute_manager.lock().await;
-        mute_manager.get(guild_id.get(), msg.author.id.get())
-    };
-
-    if muted {
+    if data.get_muted(guild_id, msg.author.id).await {
         msg.react(ctx, '❌').await?;
         return Ok(());
     }
 
     text = utils::replace_links(&text);
-    text = utils::replace_discord_emojis(&text);
+    text = utils::replace_emojis(&text);
+    text = content_safe(&ctx, &text, &ContentSafeOptions::default(), &msg.mentions);
+    text.retain(|character| character.is_ascii());
     text = text.trim().to_string();
-
     if text.len() == 0 {
         return Ok(());
     }
@@ -392,16 +250,15 @@ async fn message_event_handler(
         .expect("Songbird Voice client placed in at initialisation.");
 
     let handler_lock = manager.get_or_insert(guild_id);
-    let mut handler = handler_lock.lock().await;
-    handler.deafen(true).await?;
-    handler.join(msg.channel_id).await?.await?;
+    {
+        let mut handler = handler_lock.lock().await;
+        handler.deafen(true).await?;
+        handler.join(msg.channel_id).await?
+    }
+    .await?;
 
-    let voice = {
-        let voice_manager = data.voice_manager.lock().await;
-        voice_manager.get(msg.author.id.get()).clone()
-    };
-
-    let mut tts_bytes = match tts(&text, &voice, msg.id.get()).await {
+    let voice = data.get_voice(msg.author.id).await;
+    let mut bytes = match dectalk::say(&text, &voice, msg.id.get()).await {
         Ok(bytes) => bytes,
         Err(err) => {
             msg.react(ctx, '❌').await?;
@@ -409,15 +266,15 @@ async fn message_event_handler(
         }
     };
 
-    tts_bytes = utils::normalize_wav(&tts_bytes, framework.user_data.tts_peak)?;
-    handler.play_input(Input::from(tts_bytes));
+    bytes = utils::normalize_wav(&bytes, framework.user_data.tts_peak)?;
+    handler_lock.lock().await.play_input(Input::from(bytes));
     Ok(())
 }
 
 async fn voice_state_update_event_handler(
-    ctx: &serenity::Context,
-    old: &Option<serenity::VoiceState>,
-    _new: &serenity::VoiceState,
+    ctx: &Context,
+    old: &Option<VoiceState>,
+    _new: &VoiceState,
     _framework: poise::FrameworkContext<'_, Data, Error>,
     _data: &Data,
 ) -> Result<(), Error> {
@@ -448,7 +305,7 @@ async fn voice_state_update_event_handler(
     let mut handler = handler_lock.lock().await;
 
     let channel_id = match handler.current_channel() {
-        Some(channel) => serenity::ChannelId::new(channel.0.get()),
+        Some(channel) => ChannelId::new(channel.0.get()),
         None => return Ok(()),
     };
 
