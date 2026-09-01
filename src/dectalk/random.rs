@@ -1,23 +1,84 @@
+use std::ops::RangeInclusive;
+
+use rand::prelude::*;
+
 use crate::dectalk::*;
 
-// SLOP!!!
+use super::{MAX_VOICE, MIN_VOICE};
+
+const LERP_RANGE: RangeInclusive<f32> = 0.15..=0.85;
+const LERP_VOICES: &[Voice] = &[
+    PAUL_VOICE,
+    HARRY_VOICE,
+    FRANK_VOICE,
+    DENNIS_VOICE,
+    BETTY_VOICE,
+    URSULA_VOICE,
+    WENDY_VOICE,
+    RITA_VOICE,
+    KIT_VOICE,
+];
+
+const JITTER_VOICE: Voice = Voice {
+    sx: 1,
+    hs: 4,
+    f4: 100,
+    f5: 100,
+    b4: 35,
+    b5: 35,
+    br: 6,
+    lx: 8,
+    sm: 8,
+    ri: 8,
+    nf: 0,
+    la: 2,
+    bf: 3,
+    hr: 3,
+    sr: 4,
+    as_: 7,
+    qu: 6,
+    ap: 10,
+    pr: 10,
+    gv: 2,
+    gh: 2,
+    gf: 2,
+    gn: 2,
+    g1: 2,
+    g2: 2,
+    g3: 2,
+    g4: 2,
+    g5: 2,
+};
+
+#[inline]
+fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * t).round() as u8
+}
+
+#[inline]
+fn lerp_u16(a: u16, b: u16, t: f32) -> u16 {
+    (a as f32 + (b as f32 - a as f32) * t).round() as u16
+}
+
+#[inline]
+fn jitter_u8(rng: &mut StdRng, value: u8, amount: i32, min: u8, max: u8) -> u8 {
+    (value as i32 + rng.random_range(-amount..=amount)).clamp(min as i32, max as i32) as u8
+}
+
+#[inline]
+fn jitter_u16(rng: &mut StdRng, value: u16, amount: i32, min: u16, max: u16) -> u16 {
+    (value as i32 + rng.random_range(-amount..=amount)).clamp(min as i32, max as i32) as u16
+}
+
 pub fn random(seed: u64) -> Voice {
-    let mut rng = SplitMix64::new(seed);
-    const MALE: [&Voice; 4] = [&PAUL_VOICE, &HARRY_VOICE, &FRANK_VOICE, &DENNIS_VOICE];
-    const FEMALE: [&Voice; 4] = [&BETTY_VOICE, &URSULA_VOICE, &WENDY_VOICE, &RITA_VOICE];
-    let presets = if rng.bool() { &MALE } else { &FEMALE };
-
-    let a_index = rng.index(presets.len());
-    let mut b_index = rng.index(presets.len());
-    if b_index == a_index {
-        b_index = (b_index + 1) % presets.len();
-    }
-
-    let a = presets[a_index];
-    let b = presets[b_index];
-    let t = rng.range_f32(0.15, 0.85);
-    let mut v = Voice {
-        sx: a.sx,
+    let mut rng = StdRng::seed_from_u64(seed);
+    let ai = rng.random_range(0..LERP_VOICES.len());
+    let bi = rng.random_range(0..LERP_VOICES.len() - 1);
+    let a = &LERP_VOICES[ai];
+    let b = &LERP_VOICES[if bi >= ai { bi + 1 } else { bi }];
+    let t = rng.random_range(LERP_RANGE);
+    let mut voice = Voice {
+        sx: lerp_u8(a.sx, b.sx, t),
         hs: lerp_u8(a.hs, b.hs, t),
         f4: lerp_u16(a.f4, b.f4, t),
         f5: lerp_u16(a.f5, b.f5, t),
@@ -47,110 +108,202 @@ pub fn random(seed: u64) -> Voice {
         g5: lerp_u8(a.g5, b.g5, t),
     };
 
-    v.hs = jitter_u8(&mut rng, v.hs, 4, 80, 120);
-    if v.sx == 1 {
-        v.f4 = jitter_u16(&mut rng, v.f4, 100, 3000, 3850);
-        v.f5 = jitter_u16(&mut rng, v.f5, 100, 3450, 4350);
-        v.ap = jitter_u16(&mut rng, v.ap, 8, 80, 170);
-        v.pr = jitter_u8(&mut rng, v.pr, 8, 70, 150);
-    } else {
-        v.f4 = jitter_u16(&mut rng, v.f4, 100, 3850, 4600);
-        v.f5 = 2500;
-        v.ap = jitter_u16(&mut rng, v.ap, 10, 100, 260);
-        v.pr = jitter_u8(&mut rng, v.pr, 10, 70, 190);
-    }
-    if v.sx == 1 {
-        v.b4 = jitter_u16(&mut rng, v.b4, 30, 170, 330);
-        v.b5 = jitter_u16(&mut rng, v.b5, 30, 200, 360);
-    } else {
-        v.b4 = jitter_u16(&mut rng, v.b4, 35, 190, 450);
-        v.b5 = 2048;
-    }
-    v.br = jitter_u8(&mut rng, v.br, 6, 0, 60);
-    v.lx = jitter_u8(&mut rng, v.lx, 8, 0, 90);
-    v.sm = jitter_u8(&mut rng, v.sm, 8, 0, 100);
-    v.ri = jitter_u8(&mut rng, v.ri, 8, 0, 100);
-    v.nf = if rng.bool_probability(0.30) { 10 } else { 0 };
-    v.la = jitter_u8(&mut rng, v.la, 2, 0, 8);
-    v.bf = jitter_u8(&mut rng, v.bf, 3, 0, 20);
-    v.hr = jitter_u8(&mut rng, v.hr, 3, 10, 30);
-    v.sr = jitter_u8(&mut rng, v.sr, 4, 15, 40);
-    v.as_ = jitter_u8(&mut rng, v.as_, 7, 25, 100);
-    v.qu = jitter_u8(&mut rng, v.qu, 6, 0, 65);
-    v.gv = jitter_u8(&mut rng, v.gv, 2, 58, 68);
-    v.gh = jitter_u8(&mut rng, v.gh, 2, 65, 73);
-    v.gf = jitter_u8(&mut rng, v.gf, 2, 65, 74);
-    v.gn = jitter_u8(&mut rng, v.gn, 2, 69, 78);
-    v.g1 = jitter_u8(&mut rng, v.g1, 2, 60, 77);
-    v.g2 = jitter_u8(&mut rng, v.g2, 2, 56, 74);
-    v.g3 = jitter_u8(&mut rng, v.g3, 2, 45, 58);
-    v.g4 = jitter_u8(&mut rng, v.g4, 2, 50, 68);
-    v.g5 = jitter_u8(&mut rng, v.g5, 2, 72, 86);
-    v
-}
+    voice.sx = jitter_u8(
+        &mut rng,
+        voice.sx,
+        JITTER_VOICE.sx as i32,
+        MIN_VOICE.sx,
+        MAX_VOICE.sx,
+    );
+    voice.hs = jitter_u8(
+        &mut rng,
+        voice.hs,
+        JITTER_VOICE.hs as i32,
+        MIN_VOICE.hs,
+        MAX_VOICE.hs,
+    );
+    voice.f4 = jitter_u16(
+        &mut rng,
+        voice.f4,
+        JITTER_VOICE.f4 as i32,
+        MIN_VOICE.f4,
+        MAX_VOICE.f4,
+    );
+    voice.f5 = jitter_u16(
+        &mut rng,
+        voice.f5,
+        JITTER_VOICE.f5 as i32,
+        MIN_VOICE.f5,
+        MAX_VOICE.f5,
+    );
+    voice.b4 = jitter_u16(
+        &mut rng,
+        voice.b4,
+        JITTER_VOICE.b4 as i32,
+        MIN_VOICE.b4,
+        MAX_VOICE.b4,
+    );
+    voice.b5 = jitter_u16(
+        &mut rng,
+        voice.b5,
+        JITTER_VOICE.b5 as i32,
+        MIN_VOICE.b5,
+        MAX_VOICE.b5,
+    );
+    voice.br = jitter_u8(
+        &mut rng,
+        voice.br,
+        JITTER_VOICE.br as i32,
+        MIN_VOICE.br,
+        MAX_VOICE.br,
+    );
+    voice.lx = jitter_u8(
+        &mut rng,
+        voice.lx,
+        JITTER_VOICE.lx as i32,
+        MIN_VOICE.lx,
+        MAX_VOICE.lx,
+    );
+    voice.sm = jitter_u8(
+        &mut rng,
+        voice.sm,
+        JITTER_VOICE.sm as i32,
+        MIN_VOICE.sm,
+        MAX_VOICE.sm,
+    );
+    voice.ri = jitter_u8(
+        &mut rng,
+        voice.ri,
+        JITTER_VOICE.ri as i32,
+        MIN_VOICE.ri,
+        MAX_VOICE.ri,
+    );
+    voice.nf = jitter_u8(
+        &mut rng,
+        voice.nf,
+        JITTER_VOICE.nf as i32,
+        MIN_VOICE.nf,
+        MAX_VOICE.nf,
+    );
+    voice.la = jitter_u8(
+        &mut rng,
+        voice.la,
+        JITTER_VOICE.la as i32,
+        MIN_VOICE.la,
+        MAX_VOICE.la,
+    );
+    voice.bf = jitter_u8(
+        &mut rng,
+        voice.bf,
+        JITTER_VOICE.bf as i32,
+        MIN_VOICE.bf,
+        MAX_VOICE.bf,
+    );
+    voice.hr = jitter_u8(
+        &mut rng,
+        voice.hr,
+        JITTER_VOICE.hr as i32,
+        MIN_VOICE.hr,
+        MAX_VOICE.hr,
+    );
+    voice.sr = jitter_u8(
+        &mut rng,
+        voice.sr,
+        JITTER_VOICE.sr as i32,
+        MIN_VOICE.sr,
+        MAX_VOICE.sr,
+    );
+    voice.as_ = jitter_u8(
+        &mut rng,
+        voice.as_,
+        JITTER_VOICE.as_ as i32,
+        MIN_VOICE.as_,
+        MAX_VOICE.as_,
+    );
+    voice.qu = jitter_u8(
+        &mut rng,
+        voice.qu,
+        JITTER_VOICE.qu as i32,
+        MIN_VOICE.qu,
+        MAX_VOICE.qu,
+    );
+    voice.ap = jitter_u16(
+        &mut rng,
+        voice.ap,
+        JITTER_VOICE.ap as i32,
+        MIN_VOICE.ap,
+        MAX_VOICE.ap,
+    );
+    voice.pr = jitter_u8(
+        &mut rng,
+        voice.pr,
+        JITTER_VOICE.pr as i32,
+        MIN_VOICE.pr,
+        MAX_VOICE.pr,
+    );
+    voice.gv = jitter_u8(
+        &mut rng,
+        voice.gv,
+        JITTER_VOICE.gv as i32,
+        MIN_VOICE.gv,
+        MAX_VOICE.gv,
+    );
+    voice.gh = jitter_u8(
+        &mut rng,
+        voice.gh,
+        JITTER_VOICE.gh as i32,
+        MIN_VOICE.gh,
+        MAX_VOICE.gh,
+    );
+    voice.gf = jitter_u8(
+        &mut rng,
+        voice.gf,
+        JITTER_VOICE.gf as i32,
+        MIN_VOICE.gf,
+        MAX_VOICE.gf,
+    );
+    voice.gn = jitter_u8(
+        &mut rng,
+        voice.gn,
+        JITTER_VOICE.gn as i32,
+        MIN_VOICE.gn,
+        MAX_VOICE.gn,
+    );
+    voice.g1 = jitter_u8(
+        &mut rng,
+        voice.g1,
+        JITTER_VOICE.g1 as i32,
+        MIN_VOICE.g1,
+        MAX_VOICE.g1,
+    );
+    voice.g2 = jitter_u8(
+        &mut rng,
+        voice.g2,
+        JITTER_VOICE.g2 as i32,
+        MIN_VOICE.g2,
+        MAX_VOICE.g2,
+    );
+    voice.g3 = jitter_u8(
+        &mut rng,
+        voice.g3,
+        JITTER_VOICE.g3 as i32,
+        MIN_VOICE.g3,
+        MAX_VOICE.g3,
+    );
+    voice.g4 = jitter_u8(
+        &mut rng,
+        voice.g4,
+        JITTER_VOICE.g4 as i32,
+        MIN_VOICE.g4,
+        MAX_VOICE.g4,
+    );
+    voice.g5 = jitter_u8(
+        &mut rng,
+        voice.g5,
+        JITTER_VOICE.g5 as i32,
+        MIN_VOICE.g5,
+        MAX_VOICE.g5,
+    );
 
-#[inline]
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    (a as f32 + (b as f32 - a as f32) * t).round() as u8
-}
-
-#[inline]
-fn lerp_u16(a: u16, b: u16, t: f32) -> u16 {
-    (a as f32 + (b as f32 - a as f32) * t).round() as u16
-}
-
-fn jitter_u8(rng: &mut SplitMix64, value: u8, amount: i32, min: u8, max: u8) -> u8 {
-    let delta = rng.range_i32(-amount, amount);
-    (value as i32 + delta).clamp(min as i32, max as i32) as u8
-}
-
-fn jitter_u16(rng: &mut SplitMix64, value: u16, amount: i32, min: u16, max: u16) -> u16 {
-    let delta = rng.range_i32(-amount, amount);
-    (value as i32 + delta).clamp(min as i32, max as i32) as u16
-}
-
-struct SplitMix64 {
-    state: u64,
-}
-
-impl SplitMix64 {
-    fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E3779B97F4A7C15);
-
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-        z ^ (z >> 31)
-    }
-
-    fn f32(&mut self) -> f32 {
-        ((self.next_u64() >> 40) as u32) as f32 / 16_777_216.0
-    }
-
-    fn range_f32(&mut self, min: f32, max: f32) -> f32 {
-        min + self.f32() * (max - min)
-    }
-
-    fn range_i32(&mut self, min: i32, max: i32) -> i32 {
-        debug_assert!(min <= max);
-
-        let width = (max - min + 1) as u64;
-        min + (self.next_u64() % width) as i32
-    }
-
-    fn index(&mut self, len: usize) -> usize {
-        (self.next_u64() % len as u64) as usize
-    }
-
-    fn bool(&mut self) -> bool {
-        self.next_u64() & 1 != 0
-    }
-
-    fn bool_probability(&mut self, probability: f32) -> bool {
-        self.f32() < probability
-    }
+    voice
 }

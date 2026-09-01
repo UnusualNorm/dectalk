@@ -22,7 +22,7 @@ async fn autocomplete_preset<'a>(
     .map(|name| name.to_string())
 }
 
-#[poise::command(slash_command, ephemeral)]
+#[poise::command(slash_command)]
 pub async fn preset(
     ctx: Context<'_>,
     #[autocomplete = "autocomplete_preset"] voice: String,

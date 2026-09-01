@@ -35,6 +35,68 @@ pub struct Voice {
     pub g5: u8,  // 0    86   dB Gain of fifth formant resonator (replaces lo)
 }
 
+pub const MIN_VOICE: Voice = Voice {
+    sx: 0,
+    hs: 65,
+    f4: 2000,
+    f5: 2500,
+    b4: 100,
+    b5: 100,
+    br: 0,
+    lx: 0,
+    sm: 0,
+    ri: 0,
+    nf: 0,
+    la: 0,
+    bf: 0,
+    hr: 2,
+    sr: 1,
+    as_: 0,
+    qu: 0,
+    ap: 50,
+    pr: 0,
+    gv: 0,
+    gh: 0,
+    gf: 0,
+    gn: 0,
+    g1: 0,
+    g2: 0,
+    g3: 0,
+    g4: 0,
+    g5: 0,
+};
+
+pub const MAX_VOICE: Voice = Voice {
+    sx: 1,
+    hs: 145,
+    f4: 4650,
+    f5: 4950,
+    b4: 2048,
+    b5: 2048,
+    br: 72,
+    lx: 100,
+    sm: 100,
+    ri: 100,
+    nf: 100,
+    la: 100,
+    bf: 40,
+    hr: 100,
+    sr: 100,
+    as_: 100,
+    qu: 100,
+    ap: 350,
+    pr: 250,
+    gv: 86,
+    gh: 86,
+    gf: 86,
+    gn: 86,
+    g1: 86,
+    g2: 86,
+    g3: 86,
+    g4: 86,
+    g5: 86,
+};
+
 fn range_validate<Num: PartialOrd>(value: Num, min: Num, max: Num) -> bool {
     value >= min && value <= max
 }

@@ -12,7 +12,7 @@ pub async fn prefix(ctx: Context<'_>, prefix: Option<String>) -> Result<(), Erro
     };
 
     ctx.say(format!(
-        "Prefix: `{}`",
+        "`{}`",
         if let Some(prefix) = prefix {
             ctx.data().set_prefix(guild_id, prefix.clone()).await?;
             prefix

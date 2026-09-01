@@ -4,7 +4,7 @@ use std::{
 };
 
 use commands::commands;
-use dectalk::{PAUL_VOICE, Voice};
+use dectalk::Voice;
 use dotenv::dotenv;
 use poise::serenity_prelude::*;
 use serde_data::{SerdeData, SerdeDataError};

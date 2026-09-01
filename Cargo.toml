@@ -18,3 +18,4 @@ serenity = { version = "0.12.5", features = ["temp_cache"] }
 symphonia = { version = "0.5.5", features = ["wav"] }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+rand = "0.10.2"

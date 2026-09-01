@@ -1,6 +1,6 @@
 use crate::{Error, commands::Context};
 
-#[poise::command(slash_command, ephemeral)]
+#[poise::command(slash_command)]
 pub async fn reset(ctx: Context<'_>) -> Result<(), Error> {
     let author = ctx.author();
     ctx.data().remove_voice(author.id).await?;
