@@ -1,6 +1,7 @@
 use std::ops::RangeInclusive;
 
 use rand::prelude::*;
+use rand_chacha::ChaCha8Rng;
 
 use crate::dectalk::*;
 
@@ -61,17 +62,17 @@ fn lerp_u16(a: u16, b: u16, t: f32) -> u16 {
 }
 
 #[inline]
-fn jitter_u8(rng: &mut StdRng, value: u8, amount: i32, min: u8, max: u8) -> u8 {
+fn jitter_u8(rng: &mut impl Rng, value: u8, amount: i32, min: u8, max: u8) -> u8 {
     (value as i32 + rng.random_range(-amount..=amount)).clamp(min as i32, max as i32) as u8
 }
 
 #[inline]
-fn jitter_u16(rng: &mut StdRng, value: u16, amount: i32, min: u16, max: u16) -> u16 {
+fn jitter_u16(rng: &mut impl Rng, value: u16, amount: i32, min: u16, max: u16) -> u16 {
     (value as i32 + rng.random_range(-amount..=amount)).clamp(min as i32, max as i32) as u16
 }
 
 pub fn random(seed: u64) -> Voice {
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let ai = rng.random_range(0..LERP_VOICES.len());
     let bi = rng.random_range(0..LERP_VOICES.len() - 1);
     let a = &LERP_VOICES[ai];
