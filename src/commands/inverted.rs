@@ -2,7 +2,7 @@ use serenity::all::*;
 
 use crate::{Error, commands::Context};
 
-#[poise::command(slash_command, ephemeral, required_permissions = "MANAGE_GUILD")]
+#[poise::command(slash_command, ephemeral)]
 pub async fn inverted(ctx: Context<'_>, inverted: Option<bool>) -> Result<(), Error> {
     ctx.say(format!(
         "`{}`",
