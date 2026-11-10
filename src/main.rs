@@ -94,16 +94,16 @@ impl Data {
         Ok(())
     }
 
-    async fn get_inverted(&self, guild_id: GuildId) -> bool {
-        self.invert_data.get().await.contains(&guild_id.get())
+    async fn get_inverted(&self, user_id: UserId) -> bool {
+        self.invert_data.get().await.contains(&user_id.get())
     }
 
-    async fn set_inverted(&self, guild_id: GuildId, inverted: bool) -> Result<(), SerdeDataError> {
+    async fn set_inverted(&self, user_id: UserId, inverted: bool) -> Result<(), SerdeDataError> {
         let mut invert_data = self.invert_data.get_mut().await;
         if inverted {
-            invert_data.insert(guild_id.get());
+            invert_data.insert(user_id.get());
         } else {
-            invert_data.remove(&guild_id.get());
+            invert_data.remove(&user_id.get());
         }
         drop(invert_data);
         self.invert_data.save().await?;
@@ -198,7 +198,7 @@ async fn message_event_handler(
     let mut text = msg.content.clone();
     let prefix = data.get_prefix(guild_id).await;
     match (
-        data.get_inverted(guild_id).await,
+        data.get_inverted(msg.author.id).await,
         msg.content.starts_with(&prefix),
     ) {
         (true, true) => return Ok(()),
